@@ -1,0 +1,99 @@
+#!/usr/bin/env python
+
+#  Copyright (C) 2022  David King <dave@daveking.com>
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#  Copy new Komoot tours over to Garmin Connect
+
+import komootapi
+import connectapi
+import datetime
+from dateutil.parser import *
+import tempfile
+import os
+import json
+import logging
+logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
+
+#  Read our Komoot and Garmin Connect login userids and passwords from a JSON file.
+#  Format for this file:
+#    {
+#        "komootID": "",
+#        "komootPSW": "",
+#        "connectID": "",
+#        "connectPSW": ""
+#    }
+cfg_fn = os.path.expanduser('~/.config/k2c.cfg')
+try:
+	with open(cfg_fn, 'r') as f:
+		creds = json.load(f)
+except FileNotFoundError:
+	logging.error('Unable to load login credentials from "{}", file not found.'.format(cfg_fn))
+	exit(1)
+	
+#  Login
+logging.info('Authenticating with Garmin Connect')
+connect = connectapi.GarminAPI()
+connect.authenticate(creds['connectID'], creds['connectPSW'])
+
+logging.info('Authenticating with Komoot')
+komoot = komootapi.KomootApi()
+komoot.login(creds['komootID'], creds['komootPSW'])
+
+#  Get the timestamp of the most recently uploaded Komoot tour from our local file
+ts_fn = os.path.expanduser('~/.config/k2c.timestamp')
+try:
+	with open(ts_fn, 'r') as f:
+		last = float(f.read())
+except:
+	last = 0
+latest_timestamp = last
+			
+#  Look at all the tours that are in Komoot
+logging.info('Uploading new Komoot tours')
+tours = komoot.get_tours()
+for tour in tours:
+	when = parse(tour['date']).timestamp()
+	#  If this tour is new since our last run
+	if when > last:
+		#  Get the tour data in GPX XML format
+		gpx = komoot.fetch_tour(str(tour['id']))
+		
+		#  Write the GPX out to a temporary file and upload that to Garmin Connect
+		fd, gpx_file = tempfile.mkstemp(suffix='.gpx')
+		with open(gpx_file, 'w') as f:
+			f.write(gpx)
+		logging.info('Uploading Komoot tour "{}" from {}'.format(tour['name'], tour['date']))
+		activity_id, status = connect.upload_activity(gpx_file)
+		if status:
+			logging.debug('Upload completed successfully')
+		os.unlink(gpx_file)
+
+		#  Set the Connect activity name to indicate that it is a Komoot tour
+		logging.debug('Setting activity name to "Komoot - {}"'.format(tour['name']))
+		connect.set_activity_name(activity_id, 'Komoot - ' + tour['name'])
+
+		#  Set the activity type
+		logging.debug('Setting activity type to "e_bike_fitness"')
+		connect.set_activity_type(activity_id, 'e_bike_fitness')
+
+		#  Record the tour timestamp in the timestamp file if it's the latest.
+		#  (Komoot lists tours in descending date order.)
+		if when > latest_timestamp:
+			with open(ts_fn, 'w') as f:
+				f.write(str(when))
+			latest_timestamp = when
+	else:
+		logging.debug('Skipping Komoot tour "{}" from "{}", too old'.format(tour['name'], tour['date']))
