@@ -28,19 +28,19 @@ import logging
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
 
 #  Read our Komoot and Garmin Connect login userids and passwords from a JSON file.
-#  Format for this file:
-#    {
-#        "komootID": "",
-#        "komootPSW": "",
-#        "connectID": "",
-#        "connectPSW": ""
-#    }
 cfg_fn = os.path.expanduser('~/.config/k2c.cfg')
 try:
 	with open(cfg_fn, 'r') as f:
 		creds = json.load(f)
 except FileNotFoundError:
-	logging.error('Unable to load login credentials from "{}", file not found.'.format(cfg_fn))
+	logging.error('Unable to load login credentials from "{}", file not found.  New, empty "{}" file created.'.format(cfg_fn, cfg_fn))
+	with open(cfg_fn, 'w') as f:
+		f.write('{\n')
+		f.write('    "komootID": "",\n')
+		f.write('    "komootPSW": "",\n')
+		f.write('    "connectID": "",\n')
+		f.write('    "connectPSW": ""\n')
+		f.write('}')
 	exit(1)
 	
 #  Login
