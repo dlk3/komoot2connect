@@ -79,6 +79,8 @@ for tour in tours:
 		activity_id, status = connect.upload_activity(gpx_file)
 		if status:
 			logging.debug('Upload completed successfully')
+		else:
+			logging.dubug('Activity already exists, id = {}'.format(activity_id))
 		os.unlink(gpx_file)
 
 		#  Set the Connect activity name to indicate that it is a Komoot tour
